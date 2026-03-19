@@ -4,8 +4,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Générateur de visuels 'Wow' pour CMRxRecon")
+    parser = argparse.ArgumentParser(description="Générateur de visuels cool pour CMRxRecon")
     parser.add_argument("--base_dir", type=str, default="../../data", help="Dossier contenant FullSample et AccFactor04")
     parser.add_argument("--filename", type=str, default="P001_MultiCoil_lax_all.npy", help="Nom exact du fichier")
     parser.add_argument("--output_dir", type=str, default="../../output", help="Dossier de destination")
@@ -30,14 +32,14 @@ def main():
     data_full = data_full.reshape(args.frames, slices, 512, 512)
     data_04 = data_04.reshape(args.frames, slices, 512, 512)
 
-    # Rognage (Crop) pour centrer le cœur
+    # Rognage (Crop) pour centrer le coeur
     crop_size = 200
     center = 256
     c_min, c_max = center - crop_size//2, center + crop_size//2
 
-    path_static = os.path.join(args.output_dir, "1_probleme_ia_erreur.png")
-    path_gif = os.path.join(args.output_dir, "2_coeur_battant.gif")
-    path_panorama = os.path.join(args.output_dir, "3_panorama_profondeur.png")
+    path_static = os.path.join(args.output_dir, "probleme_ia_erreur.png")
+    path_gif = os.path.join(args.output_dir, "coeur_battant.gif")
+    path_panorama = os.path.join(args.output_dir, "panorama_profondeur.png")
 
     print("1/3 Génération de la carte d'erreur (Vue statique)...")
     create_static_analysis(data_full[0, args.slice_idx], data_04[0, args.slice_idx], c_min, c_max, path_static)
@@ -133,6 +135,7 @@ def create_slice_panorama(volume_full, volume_04, c_min, c_max, save_path):
     plt.tight_layout()
     plt.savefig(save_path, dpi=300, facecolor='black', bbox_inches='tight')
     plt.close()
+
 
 if __name__ == "__main__":
     main()
