@@ -40,10 +40,10 @@ def export_sequence_to_mp4(sequence, output_filepath, fps=10):
 def main():
     parser = argparse.ArgumentParser(description="Création de vidéos MP4 en boucle pour MedSAM 2")
     parser.add_argument("--base_dir", type=str, default="../../data", help="Dossier racine des données")
-    parser.add_argument("--filename", type=str, default="P001_MultiCoil_lax_all.npy", help="Nom du fichier consolidé")
+    parser.add_argument("--filename", type=str, default="P004_MultiCoil_lax_all.npy", help="Nom du fichier consolidé")
     parser.add_argument("--output_dir", type=str, default="../../output/medsam_input", help="Dossier d'export")
     parser.add_argument("--cycle_length", type=int, default=12, help="Taille originale d'un battement (défaut: 12)")
-    parser.add_argument("--slice_idx", type=int, default=1, help="Index de la tranche à transformer en vidéo")
+    parser.add_argument("--slice_idx", type=int, default=2, help="Index de la tranche à transformer en vidéo")
     parser.add_argument("--fps", type=int, default=10, help="Vitesse de la vidéo (Images par seconde)")
     parser.add_argument("--loops", type=int, default=5, help="Nombre de fois où le cycle est répété (boucle)")
     args = parser.parse_args()

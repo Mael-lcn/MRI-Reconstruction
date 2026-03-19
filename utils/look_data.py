@@ -9,7 +9,7 @@ import matplotlib.animation as animation
 def main():
     parser = argparse.ArgumentParser(description="Générateur de visuels cool pour CMRxRecon")
     parser.add_argument("--base_dir", type=str, default="../../data", help="Dossier contenant FullSample et AccFactor04")
-    parser.add_argument("--filename", type=str, default="P001_MultiCoil_lax_all.npy", help="Nom exact du fichier")
+    parser.add_argument("--filename", type=str, default="P004_MultiCoil_lax_all.npy", help="Nom exact du fichier")
     parser.add_argument("--output_dir", type=str, default="../../output", help="Dossier de destination")
     parser.add_argument("--frames", type=int, default=12, help="Nombre de frames temporelles (défaut: 12)")
     parser.add_argument("--slice_idx", type=int, default=1, help="Index de la coupe pour la vidéo et l'erreur (défaut: 1)")

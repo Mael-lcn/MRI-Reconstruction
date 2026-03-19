@@ -11,25 +11,36 @@ from loadFun import loadmat, multicoilkdata2img
 
 def paddingZero_np(np_data, target_shape=(512, 512)):
     """
-    Padding ultra-rapide par pré-allocation.
-    Évite les copies multiples en RAM générées par np.pad.
+    Padding et/ou Cropping ultra-rapide par pré-allocation.
+    S'adapte dynamiquement si l'image est plus petite ou plus grande que la cible.
     """
     shape = list(np_data.shape)
     H, W = shape[-2], shape[-1]
 
-    # Retourne immédiatement si la taille est déjà correcte
+    # Retourne immédiatement si la taille est déjà parfaite
     if H == target_shape[0] and W == target_shape[1]:
         return np_data
 
+    # Création du tenseur de destination (toujours 512x512)
     shape[-2] = target_shape[0]
     shape[-1] = target_shape[1]
-
-    # Création d'un tenseur vide (très rapide) et insertion au centre
     padded_data = np.zeros(shape, dtype=np_data.dtype)
-    h_start = (target_shape[0] - H) // 2
-    w_start = (target_shape[1] - W) // 2
 
-    padded_data[..., h_start:h_start+H, w_start:w_start+W] = np_data
+    # Calcul des indices de lecture (Image source)
+    src_h_start = max((H - target_shape[0]) // 2, 0)
+    src_w_start = max((W - target_shape[1]) // 2, 0)
+    src_h_end = src_h_start + min(H, target_shape[0])
+    src_w_end = src_w_start + min(W, target_shape[1])
+
+    # Calcul des indices d'écriture (Image de destination)
+    dst_h_start = max((target_shape[0] - H) // 2, 0)
+    dst_w_start = max((target_shape[1] - W) // 2, 0)
+    dst_h_end = dst_h_start + min(H, target_shape[0])
+    dst_w_end = dst_w_start + min(W, target_shape[1])
+
+    # Transfert de la zone d'intérêt (Crop ou Pad automatique)
+    padded_data[..., dst_h_start:dst_h_end, dst_w_start:dst_w_end] = \
+        np_data[..., src_h_start:src_h_end, src_w_start:src_w_end]
 
     return padded_data
 
