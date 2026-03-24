@@ -95,6 +95,10 @@ def process_single_slice(args: Tuple) -> Dict[str, Any]:
         np.divide(imgs_04, max_4, out=imgs_04, where=max_4!=0)
         del max_4
 
+        # On s'assure que le dossier patient existe juste avant d'écrire
+        os.makedirs(save_full_dir, exist_ok=True)
+        os.makedirs(save_04_dir, exist_ok=True)
+
         # 6. SAUVEGARDE CHUNKÉE DANS LE SOUS-DOSSIER PATIENT
         file_name = f"{item}_{coilInfo}_{axis_name}_slice{slice_idx:02d}.npy"
         np.save(os.path.join(save_full_dir, file_name), imgs_full)
@@ -122,7 +126,6 @@ def generate_slice_tasks(patient_dir: str, item: str, save_dir: str, coilInfo: s
     save_full_dir = os.path.join(save_dir, "FullSample", item)
     save_04_dir = os.path.join(save_dir, "AccFactor04", item)
 
-    # --- LOGIQUE ANTI-DOUBLON (SKIP LOGIC) ---
     if os.path.exists(save_full_dir) and os.path.exists(save_04_dir):
         # On vérifie si les dossiers contiennent déjà des fichiers .npy
         full_files = [f for f in os.listdir(save_full_dir) if f.endswith('.npy')]
@@ -131,10 +134,6 @@ def generate_slice_tasks(patient_dir: str, item: str, save_dir: str, coilInfo: s
         if len(full_files) > 0 and len(acc_files) > 0:
             print(f"  [SKIP] {item} ignoré : Déjà traité ({len(full_files)} fichiers existants).")
             return [] # On retourne une liste vide, le patient ne sera pas recalculé
-
-    # Si le dossier n'existe pas ou est vide, on le crée
-    os.makedirs(save_full_dir, exist_ok=True)
-    os.makedirs(save_04_dir, exist_ok=True)
 
     mask_dir = patient_dir.replace('FullSample', 'Mask_Task1')
     axes = [
@@ -147,7 +146,7 @@ def generate_slice_tasks(patient_dir: str, item: str, save_dir: str, coilInfo: s
             try:
                 with h5py.File(full_path, 'r') as f:
                     num_slices = f['kspace_full'].shape[1] 
-                
+
                 for slice_idx in range(num_slices):
                     tasks.append((full_path, mask_path, slice_idx, axis_name, item, save_full_dir, save_04_dir, coilInfo))
             except Exception as e:
@@ -226,7 +225,7 @@ def main():
         print("\n[INFO] Toutes les données ont déjà été traitées (ou dossier vide). Fin du script.")
         return
 
-    print(f"\n-> TOTAL : {total_tasks} nouvelles tranches à traiter réparties sur {args.workers} cœurs.")
+    print(f"\n-> TOTAL : {total_tasks} nouvelles tranches à traiter réparties sur {args.workers} coeurs.")
     
     start_time = time.time()
     success_count = 0
