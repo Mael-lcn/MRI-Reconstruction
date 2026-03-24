@@ -15,8 +15,17 @@ from loadFun import load_h5_slice, multicoilkdata2img_slice
 
 def paddingZero_np(np_data: np.ndarray, target_shape: Tuple[int, int] = (512, 512)) -> np.ndarray:
     """
-    Applique un padding (remplissage de zéros) ou un center-cropping dynamique sur un tenseur.
-    Alloue directement la matrice cible et injecte les données, évitant la duplication en RAM.
+    Applique un remplissage de zéros (padding) ou un recadrage central (cropping) dynamique sur un tenseur.
+    
+    Alloue directement la matrice cible et y injecte les données afin d'optimiser 
+    l'utilisation de la mémoire vive, en évitant la duplication des objets.
+
+    Args:
+        np_data (np.ndarray): Tenseur source contenant les données complexes ou réelles.
+        target_shape (Tuple[int, int]): Dimensions spatiales cibles (Hauteur, Largeur).
+
+    Returns:
+        np.ndarray: Tenseur redimensionné aux dimensions cibles.
     """
     shape = list(np_data.shape)
     H, W = shape[-2], shape[-1]
@@ -45,18 +54,36 @@ def paddingZero_np(np_data: np.ndarray, target_shape: Tuple[int, int] = (512, 51
 
 def process_single_slice(args: Tuple) -> Dict[str, Any]:
     """
-    Pipeline de traitement pour UNE unique tranche (Slice) d'IRM.
-    Gère la RAM de façon chirurgicale avec des purges (del) in-place.
+    Exécute le pipeline de traitement complet pour une unique tranche spatiale d'IRM.
+    
+    Le traitement inclut le chargement paresseux, l'application du masque de sous-échantillonnage,
+    la conversion vers l'espace image (IFFT), et la normalisation. L'empreinte mémoire est 
+    strictement contrôlée via des suppressions manuelles (del).
+
+    Args:
+        args (Tuple): Contient les paramètres de la tranche à traiter et les chemins 
+                      de destination cloisonnés.
+
+    Returns:
+        Dict[str, Any]: Dictionnaire de résultats contenant le statut de l'opération, 
+                        les identifiants de la tranche, et le nombre de trames temporelles extraites.
     """
     full_path, mask_path, slice_idx, axis_name, item, save_full_dir, save_04_dir, coilInfo = args
-    result = {"status": "SUCCESS", "item": item, "slice_idx": slice_idx, "axis": axis_name, "msg": ""}
+    result = {
+        "status": "SUCCESS", 
+        "item": item, 
+        "slice_idx": slice_idx, 
+        "axis": axis_name, 
+        "num_frames": 0, 
+        "msg": ""
+    }
 
     try:
-        # 1. LAZY LOADING
+        # 1. Chargement paresseux des données
         raw_full = load_h5_slice(full_path, slice_idx, dataset_name='kspace_full')
         raw_mask = load_h5_slice(mask_path, slice_idx)
 
-        # 2. CONVERSION COMPLEXE IN-PLACE
+        # 2. Conversion vers l'espace complexe avec allocation directe
         data_full = np.empty(raw_full.shape, dtype=np.complex64)
         if raw_full.dtype.names is not None and 'real' in raw_full.dtype.names:
             data_full.real, data_full.imag = raw_full['real'], raw_full['imag']
@@ -71,7 +98,7 @@ def process_single_slice(args: Tuple) -> Dict[str, Any]:
             mask_04[:] = raw_mask
         del raw_mask
 
-        # 3. SOUS-ÉCHANTILLONNAGE & PADDING
+        # 3. Application du masque et ajustement des dimensions (Padding)
         data_04 = data_full * mask_04
         del mask_04
         
@@ -80,13 +107,16 @@ def process_single_slice(args: Tuple) -> Dict[str, Any]:
         data_04_padded = paddingZero_np(data_04, (512, 512))
         del data_04
 
-        # 4. IFFT (Transformation Image)
+        # 4. Reconstruction spatiale (Transformée de Fourier inverse)
         imgs_full = multicoilkdata2img_slice(data_full_padded)
         del data_full_padded
         imgs_04 = multicoilkdata2img_slice(data_04_padded)
         del data_04_padded
 
-        # 5. NORMALISATION (In-place strict)
+        # Extraction de la dimension temporelle pour les statistiques du jeu de données
+        result["num_frames"] = imgs_full.shape[0]
+
+        # 5. Normalisation par le maximum d'intensité
         max_f = np.amax(imgs_full, axis=(1, 2), keepdims=True)
         np.divide(imgs_full, max_f, out=imgs_full, where=max_f!=0)
         del max_f
@@ -95,15 +125,15 @@ def process_single_slice(args: Tuple) -> Dict[str, Any]:
         np.divide(imgs_04, max_4, out=imgs_04, where=max_4!=0)
         del max_4
 
-        # On s'assure que le dossier patient existe juste avant d'écrire
+        # 6. Création des répertoires cibles (JIT) et sauvegarde
         os.makedirs(save_full_dir, exist_ok=True)
         os.makedirs(save_04_dir, exist_ok=True)
 
-        # 6. SAUVEGARDE CHUNKÉE DANS LE SOUS-DOSSIER PATIENT
         file_name = f"{item}_{coilInfo}_{axis_name}_slice{slice_idx:02d}.npy"
         np.save(os.path.join(save_full_dir, file_name), imgs_full)
         np.save(os.path.join(save_04_dir, file_name), imgs_04)
         
+        # Libération finale de la mémoire allouée au processus
         del imgs_full, imgs_04
         gc.collect()
         
@@ -111,29 +141,39 @@ def process_single_slice(args: Tuple) -> Dict[str, Any]:
 
     except Exception as e:
         result["status"] = "ERROR"
-        result["msg"] = f"[ERREUR FATALE] {item} ({axis_name} tranche {slice_idx}):\n{traceback.format_exc()}"
+        result["msg"] = f"Échec sur le patient {item} (axe {axis_name}, tranche {slice_idx}):\n{traceback.format_exc()}"
         return result
 
 
 def generate_slice_tasks(patient_dir: str, item: str, save_dir: str, coilInfo: str) -> List[Tuple]:
     """
-    Inspecte un patient et génère les tâches.
-    Inclus la logique de SAUT (Skip) si le patient a déjà été traité.
+    Analyse les données d'un patient pour générer la liste des tâches de traitement.
+    
+    Intègre une logique de vérification de l'existant (skip logic) pour éviter
+    le retraitement inutile de données déjà consolidées sur le disque.
+
+    Args:
+        patient_dir (str): Chemin vers le répertoire source du patient.
+        item (str): Identifiant du patient (ex: 'P001').
+        save_dir (str): Répertoire de destination cloisonné (ex: .../TrainingSet).
+        coilInfo (str): Configuration des antennes.
+
+    Returns:
+        List[Tuple]: Liste des arguments prêts à être distribués aux processus travailleurs.
     """
     tasks = []
     
-    # Création des chemins incluant le nom du patient (ex: output/FullSample/P001)
     save_full_dir = os.path.join(save_dir, "FullSample", item)
     save_04_dir = os.path.join(save_dir, "AccFactor04", item)
 
+    # Vérification de l'existence de données préalablement calculées
     if os.path.exists(save_full_dir) and os.path.exists(save_04_dir):
-        # On vérifie si les dossiers contiennent déjà des fichiers .npy
         full_files = [f for f in os.listdir(save_full_dir) if f.endswith('.npy')]
         acc_files = [f for f in os.listdir(save_04_dir) if f.endswith('.npy')]
         
         if len(full_files) > 0 and len(acc_files) > 0:
-            print(f"  [SKIP] {item} ignoré : Déjà traité ({len(full_files)} fichiers existants).")
-            return [] # On retourne une liste vide, le patient ne sera pas recalculé
+            print(f"    [Information] {item} ignoré : Patient déjà traité ({len(full_files)} fichiers existants).")
+            return [] 
 
     mask_dir = patient_dir.replace('FullSample', 'Mask_Task1')
     axes = [
@@ -146,42 +186,51 @@ def generate_slice_tasks(patient_dir: str, item: str, save_dir: str, coilInfo: s
             try:
                 with h5py.File(full_path, 'r') as f:
                     num_slices = f['kspace_full'].shape[1] 
-
+                
                 for slice_idx in range(num_slices):
                     tasks.append((full_path, mask_path, slice_idx, axis_name, item, save_full_dir, save_04_dir, coilInfo))
             except Exception as e:
-                print(f"  [ATTENTION] {item} : Impossible d'inspecter l'axe {axis_name} -> {e}")
+                print(f"    [Avertissement] {item} : Échec de la lecture de l'axe {axis_name} -> {e}")
                 
     if len(tasks) > 0:
-        print(f"  [AJOUT] {item} planifié : {len(tasks)} tranches à traiter.")
+        print(f"    [Planification] {item} : {len(tasks)} tranches ajoutées à la file d'attente.")
         
     return tasks
 
 
-def generate_training_pairs(base_path: str, acc_factor: str = "AccFactor04") -> Tuple[int, str]:
+def generate_pairs(dataset_out_dir: str, acc_factor: str = "AccFactor04") -> Tuple[int, str]:
     """ 
-    Génère le fichier texte de mapping en parcourant récursivement les sous-dossiers patients. 
+    Génère le fichier texte de mapping reliant les images sous-échantillonnées à leur vérité terrain.
+    
+    Parcourt récursivement l'arborescence cloisonnée (TrainingSet, ValidationSet, ou TestSet) 
+    pour lier chaque fichier .npy. Ce fichier est destiné à être ingéré par l'objet Dataset de PyTorch.
+
+    Args:
+        dataset_out_dir (str): Répertoire cloisonné cible (ex: output/TrainingSet).
+        acc_factor (str, optional): Nom du dossier contenant les entrées du modèle.
+
+    Returns:
+        Tuple[int, str]: Nombre total de paires générées et chemin vers le fichier de mapping.
     """
-    imgs_dir_base = os.path.join(base_path, acc_factor)
-    full_sample_dir_base = os.path.join(base_path, 'FullSample')
+    imgs_dir_base = os.path.join(dataset_out_dir, acc_factor)
+    full_sample_dir_base = os.path.join(dataset_out_dir, 'FullSample')
     pairs_count = 0
 
     if not os.path.exists(imgs_dir_base) or not os.path.exists(full_sample_dir_base):
-        return 0, "[ERREUR] Dossiers cibles introuvables."
+        return 0, "Dossiers cibles introuvables."
 
-    file_path = os.path.join(base_path, f"{acc_factor}_training_pair.txt")
+    # Sauvegarde du fichier à la racine du sous-dossier de set (ex: output/TrainingSet/AccFactor04_pairs.txt)
+    file_path = os.path.join(dataset_out_dir, f"{acc_factor}_pairs.txt")
 
     try:
         with open(file_path, "w") as file_obj:
-            # Parcours de chaque dossier patient (P001, P002...)
             for patient_folder in sorted(os.listdir(imgs_dir_base)):
                 patient_imgs_dir = os.path.join(imgs_dir_base, patient_folder)
                 patient_gt_dir = os.path.join(full_sample_dir_base, patient_folder)
 
                 if not os.path.isdir(patient_imgs_dir):
-                    continue # Ignore les fichiers parasites à la racine
+                    continue 
 
-                # Parcours des fichiers .npy dans le dossier du patient
                 for img_name in sorted(os.listdir(patient_imgs_dir)):
                     if img_name.endswith('.npy'):
                         img_path = os.path.join(patient_imgs_dir, img_name)
@@ -197,72 +246,100 @@ def generate_training_pairs(base_path: str, acc_factor: str = "AccFactor04") -> 
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Prétraitement HPC Lazy-Loading et Chunking")
-    parser.add_argument('-i', "--input", type=str, default="/lustre/fsn1/projects/rech/iql/uri76kx/ig3d_CMRxRecon/data_pre/home2/Raw_data/MICCAIChallenge2024/ChallengeData")
-    parser.add_argument('-o', "--output", type=str, default="/lustre/fsn1/projects/rech/iql/uri76kx/ig3d_CMRxRecon/data")
-    parser.add_argument('-w', "--workers", type=int, default=max(1, multiprocessing.cpu_count()-1))
+    parser = argparse.ArgumentParser(description="Pipeline de prétraitement HPC pour la reconstruction IRM (CMRxRecon)")
+    parser.add_argument('-i', "--input", type=str, default="/lustre/fsn1/projects/rech/iql/uri76kx/ig3d_CMRxRecon/data_pre/home2/Raw_data/MICCAIChallenge2024/ChallengeData", help="Répertoire source principal (Training/Validation)")
+    parser.add_argument('-t', "--test_input", type=str, default="/lustre/fsn1/projects/rech/iql/uri76kx/ig3d_CMRxRecon/data_post/GroundTruth", help="Répertoire source spécifique au jeu de test")
+    parser.add_argument('-o', "--output", type=str, default="/lustre/fsn1/projects/rech/iql/uri76kx/ig3d_CMRxRecon/data", help="Répertoire de destination consolidé")
+    parser.add_argument('-w', "--workers", type=int, default=max(1, multiprocessing.cpu_count()-1), help="Nombre de processus de calcul alloués")
 
     args = parser.parse_args()
     coilInfo = 'MultiCoil'
-    dir_path = os.path.join(args.input, coilInfo, 'Cine', 'TrainingSet', 'FullSample')
-
-    if not os.path.isdir(dir_path):
-        print(f"[ERREUR CRITIQUE] Dossier source introuvable : {dir_path}")
-        return
-
-    print("=========================================================")
-    print(" 1. SCAN DES PATIENTS ET PLANIFICATION (AVEC SKIP-LOGIC) ")
-    print("=========================================================")
+    
+    # Cartographie des partitions vers leurs répertoires sources respectifs
+    dataset_splits = [
+        ('TrainingSet', args.input),
+        ('ValidationSet', args.input),
+        ('TestSet', args.test_input)
+    ]
+    
     all_slice_tasks = []
 
-    for item in sorted(os.listdir(dir_path)):
-        patient_dir = os.path.join(dir_path, item)
-        if os.path.isdir(patient_dir):
-            all_slice_tasks.extend(generate_slice_tasks(patient_dir, item, args.output, coilInfo))
+    print("---------------------------------------------------------")
+    print(" Phase 1 : Planification des tâches et analyse du disque")
+    print("---------------------------------------------------------")
+    
+    for split_name, base_input_dir in dataset_splits:
+        dir_path = os.path.join(base_input_dir, coilInfo, 'Cine', split_name, 'FullSample')
+        save_dir = os.path.join(args.output, split_name)
+
+        if not os.path.isdir(dir_path):
+            print(f"\n  [Information] Séquence '{split_name}' introuvable à la source, ignorée.")
+            continue
+            
+        print(f"\n  Analyse de la séquence : {split_name}...")
+        for item in sorted(os.listdir(dir_path)):
+            patient_dir = os.path.join(dir_path, item)
+            if os.path.isdir(patient_dir):
+                all_slice_tasks.extend(generate_slice_tasks(patient_dir, item, save_dir, coilInfo))
 
     total_tasks = len(all_slice_tasks)
     if total_tasks == 0:
-        print("\n[INFO] Toutes les données ont déjà été traitées (ou dossier vide). Fin du script.")
+        print("\n[Information] L'intégralité du jeu de données a déjà été traitée. Fin de l'exécution.")
         return
 
-    print(f"\n-> TOTAL : {total_tasks} nouvelles tranches à traiter réparties sur {args.workers} coeurs.")
+    print(f"\n=> Total à calculer : {total_tasks} nouvelles tranches réparties sur {args.workers} processus.")
     
     start_time = time.time()
     success_count = 0
     errors = 0
+    total_2d_frames_extracted = 0
 
-    print("\n=========================================================")
-    print(" 2. EXECUTION MULTIPROCESSING (RECONSTRUCTION 2D)        ")
-    print("=========================================================")
+    print("\n---------------------------------------------------------")
+    print(" Phase 2 : Exécution distribuée de la reconstruction")
+    print("---------------------------------------------------------")
     with multiprocessing.Pool(processes=args.workers) as pool:
         for result in tqdm(pool.imap_unordered(process_single_slice, all_slice_tasks), total=total_tasks, desc="Progression globale"):
             if result["status"] == "SUCCESS":
                 success_count += 1
+                total_2d_frames_extracted += result.get("num_frames", 0)
             else:
                 errors += 1
-                # Utilisation de tqdm.write pour ne pas casser la barre de progression
                 tqdm.write(result["msg"])
 
-    print("\n=========================================================")
-    print(" 3. CONSOLIDATION DU MAPPING PYTORCH                     ")
-    print("=========================================================")
-    pairs_count, pair_file_path = generate_training_pairs(args.output)
-    print(f"  -> Fichier de paires mis à jour : {pair_file_path}")
+    print("\n---------------------------------------------------------")
+    print(" Phase 3 : Consolidation des descripteurs pour l'apprentissage")
+    print("---------------------------------------------------------")
+    
+    total_pairs_generated = 0
+    for split_name, _ in dataset_splits:
+        split_out_dir = os.path.join(args.output, split_name)
+        if os.path.isdir(split_out_dir):
+            p_count, p_path = generate_pairs(split_out_dir)
+            if p_count > 0:
+                print(f"  [{split_name}] Fichier de registre généré : {p_path} ({p_count} séquences)")
+                total_pairs_generated += p_count
 
     total_time = time.time() - start_time
     hours, rem = divmod(total_time, 3600)
     minutes, seconds = divmod(rem, 60)
 
-    print(f"""
-    =========================================================
-                    RAPPORT D'EXECUTION FINALE              
-    =========================================================
-    Temps de calcul total   : {int(hours)}h {int(minutes)}m {int(seconds)}s
-    Tranches calculées      : {success_count} / {total_tasks}
-    Paires d'entraînement   : {pairs_count} (Total dataset)
-    Erreurs fatales         : {errors}
-    =========================================================
-        """)
+    report = f"""
+        =========================================================
+                    RAPPORT D'EXÉCUTION DU PIPELINE              
+        =========================================================
+        Durée totale de l'opération   : {int(hours)}h {int(minutes)}m {int(seconds)}s
+        Tranches spatiales calculées  : {success_count} / {total_tasks}
+        ---------------------------------------------------------
+        Métriques Deep Learning :
+        Fichiers tenseurs produits  : {total_pairs_generated * 2} (Entrée + Cible)
+        Images 2D effectives        : ~{total_2d_frames_extracted} (Frames nouvellement extraites)
+        Total Paires consolidées    : {total_pairs_generated}
+        ---------------------------------------------------------
+        Erreurs d'exécution système   : {errors}
+        =========================================================
+        """
+    print(report)
+
 
 if __name__ == "__main__":
     main()
