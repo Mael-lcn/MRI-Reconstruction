@@ -254,20 +254,20 @@ def main():
 
     args = parser.parse_args()
     coilInfo = 'MultiCoil'
-    
+
     # Cartographie des partitions vers leurs répertoires sources respectifs
     dataset_splits = [
         ('TrainingSet', args.input),
-        ('ValidationSet', args.input),
+        ('ValidationSet', args.test_input),
         ('TestSet', args.test_input)
     ]
-    
+
     all_slice_tasks = []
 
     print("---------------------------------------------------------")
     print(" Phase 1 : Planification des tâches et analyse du disque")
     print("---------------------------------------------------------")
-    
+
     for split_name, base_input_dir in dataset_splits:
         dir_path = os.path.join(base_input_dir, coilInfo, 'Cine', split_name, 'FullSample')
         save_dir = os.path.join(args.output, split_name)
@@ -275,7 +275,7 @@ def main():
         if not os.path.isdir(dir_path):
             print(f"\n  [Information] Séquence '{split_name}' introuvable à la source, ignorée.")
             continue
-            
+
         print(f"\n  Analyse de la séquence : {split_name}...")
         for item in sorted(os.listdir(dir_path)):
             patient_dir = os.path.join(dir_path, item)

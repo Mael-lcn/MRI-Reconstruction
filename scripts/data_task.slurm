@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=data_task
 #SBATCH --qos=qos_cpu-t3
-#SBATCH --cpus-per-task=32
+#SBATCH --cpus-per-task=40
 #SBATCH --hint=nomultithread
 #SBATCH --time=3:00:00
 #SBATCH --output=../dump/data_task.out
@@ -12,4 +12,4 @@ module purge
 module load python/3.11.5
 conda activate ig3d
 
-srun python $WORK/ig3d/Cardiac-Volume-Segmentation/dataset/data_task.py -w 32
+srun python $WORK/ig3d/Cardiac-Volume-Segmentation/dataset/data_task.py -w 40
