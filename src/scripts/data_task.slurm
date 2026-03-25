@@ -12,4 +12,4 @@ module purge
 module load python/3.11.5
 conda activate ig3d
 
-srun python $WORK/ig3d/Cardiac-Volume-Segmentation/dataset/data_task.py -w 40
+srun python $WORK/ig3d/Cardiac-Volume-Segmentation/src/dataset/data_task.py -w 40
