@@ -9,8 +9,8 @@
 #SBATCH --cpus-per-task=3
 #SBATCH --hint=nomultithread
 #SBATCH --account=iql@v100
-#SBATCH --output=../dump/train_%j.out
-#SBATCH --error=../dump/train_%j.err
+#SBATCH --output=../dump/train.out
+#SBATCH --error=../dump/train.err
 
 module purge
 module load pytorch-gpu/py3/2.1.1
