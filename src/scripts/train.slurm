@@ -9,6 +9,9 @@
 #SBATCH --cpus-per-task=3
 #SBATCH --hint=nomultithread
 #SBATCH --account=iql@v100
+#SBATCH --output=../dump/train_diffcmr.out
+#SBATCH --error=../dump/train_diffcmr.err
+
 
 module purge
 module load pytorch-gpu/py3/2.1.1
