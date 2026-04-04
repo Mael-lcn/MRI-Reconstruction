@@ -28,8 +28,8 @@ srun python $WORK/ig3d/Cardiac-Volume-Segmentation/src/DiffCMR/inference.py \
     --result_dir "/lustre/fsn1/projects/rech/iql/uri76kx/ig3d_CMRxRecon/log/$task/eval" \
     --model_type "diffusion" \
     --diffusion_steps 1000 \
-    --timestep_respacing 100 \
-    --batch_size 16 \
+    --timestep_respacing 1000 \
+    --batch_size 8 \
     --vote_num 4 \
     --num_workers 2 \
     --use_fp16 True
