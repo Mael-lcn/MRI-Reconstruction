@@ -11,7 +11,7 @@ def load_h5_slice(file_path: str, slice_idx: int, dataset_name: Optional[str] = 
     
     Cette fonction empêche le chargement de l'intégralité du tenseur K-space en mémoire (OOM).
     Elle lit directement sur le disque dur les octets correspondants à l'index demandé.
-
+ 
     Args:
         file_path (str): Chemin absolu vers le fichier .mat.
         slice_idx (int): L'index de la tranche temporelle/spatiale à extraire.

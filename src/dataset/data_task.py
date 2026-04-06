@@ -61,7 +61,7 @@ def process_single_slice(args: Tuple) -> Dict[str, Any]:
 
         data_04 = data_full * mask_04
 
-        # 1. Transformation en image (La fonction corrigée est appelée ici)
+        # 1. Transformation en image
         imgs_full = multicoilkdata2img_slice(padding_zero_512(data_full))
         imgs_04 = multicoilkdata2img_slice(padding_zero_512(data_04))
         result["num_frames"] = imgs_full.shape[0]
