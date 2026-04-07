@@ -30,7 +30,7 @@ def play_training_evolution_scene(scene):
 
     train_steps = [
         ("images/train/recon_b0_i1_10k.png", "10k", 0.1),
-        ("images/train/recon_b0_i1 copy_20k.png", "20k", 0.2),
+        ("images/train/recon_b0_i1_20k.png", "20k", 0.2),
         ("images/train/recon_b0_i1_30K.png", "30k", 0.3),
         ("images/train/recon_b0_i1_150K.png", "150k", 1.0),
     ]
